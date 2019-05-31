@@ -231,7 +231,9 @@ function Remove-Path {
     }
 }
 
-Export-ModuleMember -Function Get-Path
-Export-ModuleMember -Function Find-Path
-Export-ModuleMember -Function Add-Path
-Export-ModuleMember -Function Remove-Path
+Export-ModuleMember -Function @(
+    "Get-Path",
+    "Find-Path",
+    "Add-Path",
+    "Remove-Path"
+    )
