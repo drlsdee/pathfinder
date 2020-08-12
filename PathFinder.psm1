@@ -1,98 +1,51 @@
-
-function Get-PSScriptsInFolder {
-    [CmdletBinding()]
-    param (
-        # Folder to search
-        [Parameter()]
-        [string]
-        $Path,
-
-        # Include files with double extensions, e.g. '*.tests.ps1', '*.build.ps1' etc.
-        [Parameter()]
-        [switch]
-        $IncludeTests
-    )
-    [string]$myName                     =   "$($MyInvocation.InvocationName):"
-
-    if (-not [System.IO.Directory]::Exists($Path)) {
-        Write-Verbose -Message "$myName Directory `"$Path`" does not exist! Exiting."
-        return
-    }
-
-    [System.IO.FileInfo[]]$psScriptsAll =   [System.IO.Directory]::EnumerateFiles($Path, '*.ps1')
-    if ($psScriptsAll.Count -eq 0) {
-        Write-Verbose -Message "$myName Directory `"$Path`" does not contain PowerShell scripts! Exiting."
-        return
-    }
-    Write-Verbose -Message "$myName Directory `"$Path`" contains $($psScriptsAll.Count) PowerShell scripts total."
-
-    if ($IncludeTests) {
-        Write-Verbose -Message "$myName Returning all $($psScriptsAll.Count) PowerShell script paths found in folder `"$Path`" including tests, build scripts etc."
-        [string[]]$psScriptsOut         =   $psScriptsAll.FullName
-        return    $psScriptsOut
-    }
-
-    [string[]]$psScriptsOut             =   $psScriptsAll.Where({
-        -not ([regex]::IsMatch($_.BaseName, '\.'))
-    }).FullName
-
-    if ($psScriptsOut.Count -eq 0) {
-        Write-Verbose -Message "$myName Seems like the folder `"$Path`" contains only tests, build scripts or something like. Nothing to return!"
-        return
-    }
-    Write-Verbose -Message "$myName Found $($psScriptsAll.Count) PowerShell scripts in folder `"$Path`"."
-    return      $psScriptsOut
+[hashtable]$moduleStructure = @{
+    Private = "$($PSScriptRoot)\Functions\Private"
+    Public  = "$($PSScriptRoot)\Functions\Public"
 }
 
-[string]$fldrNameClasses    =   [System.IO.Path]::Combine($PSScriptRoot, 'Classes')
-[string]$fldrNameFuncPriv   =   [System.IO.Path]::Combine($PSScriptRoot, 'Functions', 'Private')
-[string]$fldrNameFuncPubl   =   [System.IO.Path]::Combine($PSScriptRoot, 'Functions', 'Public')
+#   Importing classes before all
+[string]$psClassesPath  = "$($PSScriptRoot)\Classes"
+if ([System.IO.Directory]::Exists($psClassesPath)) {
+    [System.IO.FileInfo[]]$psClassesScripts = [System.IO.Directory]::EnumerateFiles($psClassesPath, '*.ps1', 'AllDirectories')
+    Write-Verbose -Message "Found $($psClassesScripts.Count) custom PowerShell classes..."
+    $psClassesScripts.ForEach({
+        [string]$psClassPath    = $_.FullName
+        [string]$psClassName    = $_.BaseName
+        Write-Verbose -Message "Importing custom class `"$($psClassName)`" from script: $($psClassPath)"
+        .   $psClassPath
+    })
+}
 
-[string[]]$importClasses    =   Get-PSScriptsInFolder -Path $fldrNameClasses
-[string[]]$importFuncPriv   =   Get-PSScriptsInFolder -Path $fldrNameFuncPriv
-[string[]]$importFuncPubl   =   Get-PSScriptsInFolder -Path $fldrNameFuncPubl
-[string[]]$exportFunctions  =   $importFuncPubl.ForEach({
-    [System.IO.Path]::GetFileNameWithoutExtension($_)
-})
+#   Importing functions
+$moduleStructure.Keys.ForEach({
+    [string]$psFunctionType     = $_.ToLowerInvariant()
+    [string]$psFunctionFolder   = $moduleStructure.$psFunctionType
+    if ([System.IO.Directory]::Exists($psFunctionFolder)) {
+        [System.IO.FileInfo[]]$psFunctionsAll   = [System.IO.Directory]::EnumerateFiles($psFunctionFolder, '*.ps1', 'AllDirectories')
+        Write-Verbose -Message "Found $($psFunctionsAll.Count) $($psFunctionType) functions."
+        $psFunctionsAll.ForEach({
+            [string]$psFunctionName = $_.BaseName
+            [string]$psFunctionPath = $_.FullName
+            Write-Verbose -Message "Importing $($psFunctionType) function `"$($psFunctionName)`" from script: $($psFunctionPath)"
+            .   $psFunctionPath
 
-$importClasses.ForEach({
-    [string]$scriptName =   $_
-    try {
-        Write-Verbose -Message "Importing class from the script: $scriptName"
-        .   $scriptName
+            if ($psFunctionType -eq 'Public') {
+                Write-Verbose -Message "Exporting $($psFunctionType) function `"$($psFunctionName)`"."
+                Export-ModuleMember -Function $psFunctionName 
+                Write-Verbose -Message "Trying to get aliases for the function `"$($psFunctionName)`"..."
+                try {
+                    [System.Management.Automation.AliasInfo[]]$psAliasInfo = Get-Alias -Definition $psFunctionName -ErrorAction Stop
+                    [string[]]$psAliases    = $psAliasInfo.Name
+                    $psAliases.ForEach({
+                        [string]$psAliasName    = $_
+                        Write-Verbose -Message "Exporting alias `"$($psAliasName)`" for the function: $($psFunctionName)"
+                        Export-ModuleMember -Alias $psAliasName
+                    })
+                }
+                catch {
+                    Write-Verbose -Message "The function has no aliases: $($psFunctionName)"
+                }
+            }
+        })
     }
-    catch {
-        Write-Warning -Message "Cannot import class from the script: $scriptName"
-        throw   $_
-    }
-})
-
-@($importFuncPriv + $importFuncPubl).ForEach({
-    [string]$scriptName =   $_
-    try {
-        Write-Verbose -Message "Importing function from the script: $scriptName"
-        .   $scriptName
-    }
-    catch {
-        Write-Warning -Message "Cannot import function from the script: $scriptName"
-        throw   $_
-    }
-})
-
-[string[]]$aliasesList  =   @()
-$exportFunctions.ForEach({
-    [string]$functionName   =   $_
-    Write-Verbose -Message "Exporting public function: $functionName"
-    Export-ModuleMember -Function $functionName
-    try {
-        Write-Verbose   -Message "Getting alias for the function: $functionName"
-        $aliasesList    +=  (Get-Alias -Definition $functionName -ErrorAction Stop).Name
-    }
-    catch {
-        Write-Verbose   -Message "Unable to get aliases for the function: $functionName"
-    }
-})
-$aliasesList.ForEach({
-    Write-Verbose   -Message "Exporting alias: $_"
-    Export-ModuleMember -Alias $_
 })
