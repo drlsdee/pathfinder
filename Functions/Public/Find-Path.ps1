@@ -16,11 +16,12 @@ function Find-Path {
     .INPUTS
         [System.String]
     .OUTPUTS
-        [System.Array]
+        [System.String[]]
     .NOTES
         ...
     #>
     [CmdletBinding()]
+    [OutputType('System.String[]')]
     param (
         # Search string
         [Parameter(
