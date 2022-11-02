@@ -4,22 +4,41 @@ function Split-PathVariable {
     [OutputType('System.String[]')]
     param (
         # Path string
-        [Parameter(Mandatory)]
+        [Parameter(
+            Mandatory   =   $true,
+            ValueFromPipeline   =   $true
+        )]
+        [AllowNull()]
+        [AllowEmptyString()]
         [string]
         $Path
     )
-    [string]$myName = "$($MyInvocation.InvocationName):"
-    Write-Verbose   -Message "$myName Starting the function..."
 
-    [string[]]$pathSplitted = $Path.Split([System.IO.Path]::PathSeparator).Where({$_})
-
-    if ($pathSplitted.Count -eq 1) {
-        Write-Verbose -Message "$myName Seems like the given string either is not path variable or contains only one path. Anyway returning single member: $($pathSplitted[0])"
-        return $pathSplitted[0]
+    begin   {
+        #   Convert the char [System.IO.Path]::PathSeparator to a string
+        [string]$pathSeparator  =   [System.IO.Path]::PathSeparator
+        #   Otherwise, the [System.StringSplitOptions]::RemoveEmptyEntries may not work properly if the source string consists of only "path separator" characters
+        [System.StringSplitOptions]$stringSplitOptions  =   [System.StringSplitOptions]::RemoveEmptyEntries
     }
 
-    Write-Verbose -Message "$myName Found $($pathSplitted.Count) strings total. Removing duplicates..."
-    [string[]]$pathsToReturn = [System.Linq.Enumerable]::Distinct($pathSplitted)
-    Write-Verbose -Message "$myName Found $($pathsToReturn.Count) unique paths. Returning..."
-    return $pathsToReturn
+    process {
+        #   If the string is empty, do nothing
+        if	(([string]::IsNullOrEmpty($Path)) -or [string]::IsNullOrWhiteSpace($Path))	{
+            return
+        }
+        #   Split the path
+        [string[]]$pathSplitted =   $Path.Split($pathSeparator,$stringSplitOptions)
+        #   If the result is empty, do nothing
+        if	($pathSplitted.Count	-eq	0)	{
+            return
+        }
+        #   Return the single string
+        if	($pathSplitted.Count	-eq	1)	{
+            return  $pathSplitted[0]
+        }
+        #   Remove duplicates
+        return  [string[]]([System.Linq.Enumerable]::Distinct($pathSplitted))
+    }
+
+    end     {}
 }
